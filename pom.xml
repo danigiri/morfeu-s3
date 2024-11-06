@@ -1,0 +1,367 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>cat.calidos.morfeu</groupId>
+	<artifactId>s3-morfeu</artifactId>
+	<version>0.8.25-SNAPSHOT</version>
+	<packaging>war</packaging>
+
+	<name>S3 Morfeu backend</name>
+	<description>S3 support for Morfeu</description>
+	<inceptionYear>2024</inceptionYear>
+
+
+	<properties>
+		<maven.compiler.release>21</maven.compiler.release>
+		<morfeu-version>0.8.25-SNAPSHOT</morfeu-version>
+		<jetty-version>12.0.14</jetty-version>
+		<jetty-http-port>8980</jetty-http-port>
+		<jetty-stop-port>8981</jetty-stop-port>
+		<jetty-context-path>/</jetty-context-path>
+		<webapp-prefix>http://localhost:${jetty-http-port}${jetty-context-path}/</webapp-prefix>
+		<dagger-2-version>2.51.1</dagger-2-version>
+		<jupiter-version>5.7.0</jupiter-version>
+		<mockito-version>5.14.2</mockito-version>
+		<junit-platform-version>5.10.2</junit-platform-version>
+		<picocli-version>4.7.6</picocli-version>
+		<freemarker-version>2.3.33</freemarker-version>
+		<awss3-version>2.29.6</awss3-version>
+		<spotless.version>2.44.0.BETA2</spotless.version>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+		<scm.host_>github.com</scm.host_>
+		<developer.id_>danigiri</developer.id_>
+	</properties>
+
+	<scm>	<!-- mvn -B release:prepare release:perform -Darguments="-DskipITs
+		-Djetty.skip
+		-DaltDeploymentRepository=REPO::default::file://$HOME/.m2/repository" -->
+		<connection>scm:git:git@${scm.host_}:${developer.id_}/s3-morfeu.git</connection>
+		<url>scm:git:git@${scm.host_}:${developer.id_}/s3-morfeu.git</url>
+		<developerConnection>
+			scm:git:git@${scm.host_}:${developer.id_}/morfeu.git</developerConnection>
+		<tag>HEAD</tag>
+	</scm>
+
+	<build>
+		<plugins>
+
+			<!-- ////////// COMPILE PHASE /////////////////// -->
+			<plugin>	<!-- java compilation options -->
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.13.0</version>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>com.google.dagger</groupId>
+							<artifactId>dagger-compiler</artifactId>
+							<version>${dagger-2-version}</version>
+						</path>
+					</annotationProcessorPaths>
+					<!--
+					FIXME: NEED TO DOUBLE CHECK THIS IS IN CLASSPATH -->
+					<generatedSourcesDirectory>
+						target/generated-sources/annotations</generatedSourcesDirectory>
+				</configuration>
+			</plugin>
+
+			<!-- ////////// TEST PHASE ////////////////////// -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-dependency-plugin</artifactId>
+				<executions>
+					<execution>
+						<goals>
+							<goal>properties</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<version>3.2.5</version>
+				<configuration>
+					<excludes>	<!-- no UI/integration tests in unit testing -->
+						<exclude>**/*IntTest*</exclude>
+					</excludes> <!-- mockito instrumentation -->
+						<argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+				</configuration>
+			</plugin>
+
+			<!-- ////////// PACKAGE PHASE /////////////////// -->
+			<plugin>	<!--  mvn package war:war install -DarchiveClasses=true
+				-DattachClasses=true -DskipITs -DskipTests=true -Djetty.skip -->
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-war-plugin</artifactId>
+				<version>3.4.0</version>
+				<configuration>
+					<attachClasses>true</attachClasses>	<!-- creates a jar with
+					the classes and attaches an artifact -->
+				</configuration>
+			</plugin>
+
+			<!-- ////////// INTEGRATION-TEST PHASES ///////// -->
+			<plugin>
+				<groupId>org.eclipse.jetty.ee9</groupId>
+				<artifactId>jetty-ee9-maven-plugin</artifactId>
+				<version>${jetty-version}</version>
+				<dependencies>	<!--  to add GZIP compression -->
+				</dependencies>
+				<configuration>
+					<httpConnector>
+						<port>${jetty-http-port}</port>
+					</httpConnector>
+					<stopPort>${jetty-stop-port}</stopPort>
+					<stopKey>STOP</stopKey>
+					<useTestScope>true</useTestScope>
+					<webApp>
+						<contextPath>${jetty-context-path}</contextPath>
+						<!-- we add this extra classpath so jetty loads
+						templates and all jar deps like jackson and stuff -->
+						<resourceBases>
+							<resourceBase>${project.build.outputDirectory}</resourceBase>
+						</resourceBases>
+						<webInfIncludeJarPattern>^$</webInfIncludeJarPattern>
+					</webApp>
+					<testClassesDirectory>
+						${project.build.directory}/SKIPSCANTESTCLASSES</testClassesDirectory>
+					<systemProperties>
+						<systemProperty>
+							<name>__RESOURCES_PREFIX</name>
+							<value>${resources-prefix}</value>
+						</systemProperty>
+					</systemProperties>
+					<httpConnector>
+						<port>${jetty-http-port}</port>
+					</httpConnector>
+				</configuration>
+				<executions>
+					<execution>	<!-- start jetty when target is integration
+						testing -->
+						<id>start-jetty-integration-test</id>
+						<phase>pre-integration-test</phase>
+						<goals>
+							<goal>run</goal>
+						</goals>
+						<configuration>
+							<scanIntervalSeconds>0</scanIntervalSeconds>
+							<daemon>true</daemon>
+						</configuration>
+					</execution>
+					<execution>	<!-- stop jetty when completed integration
+						testing-->
+						<id>stop-jetty</id>
+						<phase>post-integration-test</phase>
+						<goals>
+							<goal>stop</goal>
+						</goals>
+						<configuration>
+							<stopKey>STOP</stopKey>
+							<stopPort>${jetty-stop-port}</stopPort>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId> <!-- use
+				DASHit.test=foo -->
+				<artifactId>maven-failsafe-plugin</artifactId>
+				<version>3.2.5</version>
+				<configuration>
+					<systemPropertyVariables>
+						<TMP_FOLDER>
+							${project.build.directory}/integration-tests-tmp</TMP_FOLDER>
+					</systemPropertyVariables>
+				</configuration>
+				<executions>
+					<execution>
+						<goals>
+							<goal>integration-test</goal>
+							<!--goal>verify</goal-->
+						</goals>
+						<configuration>
+							<includes>
+								<include>**/*IntTest*</include>
+							</includes>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- ////////// VERIFY PHASE //////////////////// -->
+			<!-- code formatting -->
+			<plugin>
+				<groupId>com.diffplug.spotless</groupId>
+				<artifactId>spotless-maven-plugin</artifactId>
+				<version>${spotless.version}</version>
+				<configuration>
+					<java>
+						<eclipse>
+							<file>
+								${project.basedir}/src/main/resources/jdt-codeformat.xml</file>
+						</eclipse>
+						<!-- to be tested <formatAnnotations /> -->
+						<removeUnusedImports />
+					</java>
+				</configuration>
+				<executions>
+					<execution>
+						<goals>	<!-- this will run when verify is invoked -->
+							<goal>check</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+
+			<!-- ////////// RELEASING /////////////////////// -->
+			<plugin>	<!-- we specift the name of the releases -->
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-release-plugin</artifactId>
+				<version>3.0.1</version>
+				<configuration>
+					<goals>compile prepare-package package deploy</goals><!--
+					goals for release:perform -->
+					<tagNameFormat>v@{project.version}</tagNameFormat>
+				</configuration>
+			</plugin>
+
+		</plugins>
+	</build>
+
+	<dependencies>
+
+		<!-- mvn package war:war install -DarchiveClasses=true
+		-DattachClasses=true -DskipITs -DskipTests=true -Djetty.skip -->
+		<dependency>
+			<groupId>cat.calidos.morfeu</groupId>
+			<artifactId>morfeu-webapp</artifactId>
+			<version>${morfeu-version}</version>
+			<classifier>classes</classifier>	<!-- this is how the extra jar is
+			generated in morfeu -->
+		</dependency>
+		<dependency>
+			<groupId>cat.calidos.morfeu</groupId>
+			<artifactId>morfeu-webapp</artifactId>
+			<version>${morfeu-version}</version>
+			<classifier>tests</classifier>	<!-- this is how the extra test jar is
+			generated in morfeu -->
+			<type>test-jar</type>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- DEPENDENCY INJECTION dependencies (optionals not included in the
+		final WAR archive) -->
+		<dependency>
+			<groupId>com.google.dagger</groupId>
+			<artifactId>dagger</artifactId>
+			<version>${dagger-2-version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.google.dagger</groupId>
+			<artifactId>dagger-producers</artifactId>
+			<version>${dagger-2-version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.google.dagger</groupId>
+			<artifactId>dagger-compiler</artifactId>
+			<version>${dagger-2-version}</version>
+			<optional>true</optional>
+		</dependency>
+
+		<!-- JETTY RUNTIME -->
+		<dependency>
+			<groupId>org.eclipse.jetty</groupId>
+			<artifactId>jetty-server</artifactId>
+			<version>${jetty-version}</version>
+			<scope>provided</scope>
+		</dependency>
+		<dependency>
+			<groupId>jakarta.servlet</groupId>
+			<artifactId>jakarta.servlet-api</artifactId>
+			<version>5.0.0</version>
+			<scope>provided</scope>
+		</dependency>
+		<!-- logging -->
+		<dependency>
+			<groupId>org.eclipse.jetty</groupId>
+			<artifactId>jetty-slf4j-impl</artifactId>
+			<version>${jetty-version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+			<version>2.0.13</version>
+		</dependency>
+		
+		<!--  templating -->
+		<dependency>
+			<groupId>org.freemarker</groupId>
+			<artifactId>freemarker</artifactId>
+			<version>${freemarker-version}</version>
+		</dependency>
+
+		<!-- request proxying -->
+		<dependency>
+			<groupId>org.mitre.dsmiley.httpproxy</groupId>
+			<artifactId>smiley-http-proxy-servlet</artifactId>
+			<version>2.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.httpcomponents</groupId>
+			<artifactId>httpcore</artifactId>
+			<version>4.4.16</version> 
+		</dependency>
+
+		<!-- s3 dependencies -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>${awss3-version}</version>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>apache-client</artifactId>
+			<version>${awss3-version}</version>
+		</dependency>
+
+		<!-- UNIT TESTING -->
+		<dependency>
+			<groupId>org.junit.jupiter</groupId>
+			<artifactId>junit-jupiter-engine</artifactId>
+			<version>${jupiter-version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.mockito</groupId>
+			<artifactId>mockito-core</artifactId>
+			<version>${mockito-version}</version>
+			<scope>test</scope>
+		</dependency>
+
+
+	</dependencies>
+
+	<licenses>
+		<license>
+			<name>The Apache Software License, Version 2.0</name>
+			<url>http://www.apache.org/licenses/LICENSE-2.0</url>
+			<comments>Copyright (C) 2024 Daniel Giribet</comments>
+		</license>
+	</licenses>
+
+	<developers>
+		<developer>
+			<id>danigiri</id>
+			<name>Daniel Giribet</name>
+			<email>dani AT calidos DOT cat</email>
+			<url>https://dani.calidos.com</url>
+			<roles>
+				<role>creator</role>
+				<role>developer</role>
+			</roles>
+			<timezone>+1</timezone>
+		</developer>
+	</developers>
+
+</project>
